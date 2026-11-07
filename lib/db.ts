@@ -41,51 +41,25 @@ export function createStore(filename: string) {
       SELECT RAISE(ABORT, 'booking_clash') WHERE EXISTS (SELECT 1 FROM bookings WHERE id != NEW.id AND roomId = NEW.roomId AND status != 'cancelled' AND checkIn < NEW.checkOut AND checkOut > NEW.checkIn);
     END;`);
   const seed = db.prepare("INSERT OR IGNORE INTO rooms VALUES (?, ?, ?, ?, ?)");
-  const rooms = [
-    [
-      "101",
-      "Garden",
-      3200,
-      "available",
-      "Ground floor / Garden facing / Twin beds",
-    ],
-    [
-      "102",
-      "Garden",
-      3200,
-      "available",
-      "Ground floor / Courtyard facing / Queen bed",
-    ],
-    [
-      "103",
-      "Garden",
-      3200,
-      "maintenance",
-      "Ground floor / Garden facing / Twin beds",
-    ],
-    [
-      "201",
-      "Deluxe",
-      4800,
-      "available",
-      "First floor / Private balcony / King bed",
-    ],
-    [
-      "202",
-      "Deluxe",
-      4800,
-      "available",
-      "First floor / Garden facing / Twin beds",
-    ],
-    [
-      "301",
-      "Suite",
-      7200,
-      "available",
-      "Second floor / Living area / King bed",
-    ],
-  ];
-  for (const room of rooms) seed.run(...room);
+  // Seed room inventory only; never overwrite existing room status or bookings.
+  for (const [index, category] of categories.entries()) {
+    const rate = [3200, 4800, 7200][index];
+    const floor = ["Ground floor", "First floor", "Second floor"][index];
+    for (let number = 1; number <= 20; number++) {
+      const id = String((index + 1) * 100 + number);
+      const status = ["103", "208", "315"].includes(id)
+        ? "maintenance"
+        : "available";
+      const view = number % 2 ? "Garden facing" : "Courtyard facing";
+      const beds =
+        category === "Suite"
+          ? "King bed / Living area"
+          : number % 2
+            ? "Twin beds"
+            : "Queen bed";
+      seed.run(id, category, rate, status, `${floor} / ${view} / ${beds}`);
+    }
+  }
   return {
     db,
     availability(
@@ -111,6 +85,11 @@ export function createStore(filename: string) {
         ) as Room[];
       return {
         ...stay,
+        inventory: db
+          .prepare(
+            "SELECT COUNT(*) AS totalRooms, SUM(CASE WHEN status = 'maintenance' THEN 1 ELSE 0 END) AS maintenanceRooms FROM rooms",
+          )
+          .get() as { totalRooms: number; maintenanceRooms: number },
         rooms: result.map((room) => ({
           ...room,
           totalPrice: room.rate * stay.nights,
@@ -178,7 +157,17 @@ export function createStore(filename: string) {
         throw error;
       }
     },
-
+    bookings() {
+      return db
+        .prepare("SELECT * FROM bookings ORDER BY createdAt DESC LIMIT 50")
+        .all() as Booking[];
+    },
+    cancel(id: string) {
+      const result = db
+        .prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?")
+        .run(id);
+      if (!result.changes) throw new BookingError("Booking not found.", 404);
+    },
   };
 }
 let store: ReturnType<typeof createStore> | undefined;
