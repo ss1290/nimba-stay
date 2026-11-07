@@ -1,54 +1,72 @@
 # Nimba Stay
 
-A small front-desk booking tool for Nimba Nature Cure. Next.js, TypeScript, and SQLite.
+Room availability and guest booking for the front desk at Nimba Nature Cure.
 
-## Run locally
+## Setup
 
-Requires Node.js 24 LTS (uses the built-in `node:sqlite` module).
+Requires Node.js 24 LTS and npm. SQLite uses Node's built-in `node:sqlite` module, so there is no separate database to install.
 
 ```sh
 npm install
 npm run dev
 ```
 
-Open http://127.0.0.1:3000. SQLite is created at `data/nimba.sqlite` on the first API request. Set `DATABASE_PATH` to change its location. The database is ignored by Git. Six rooms are seeded; room 103 is under maintenance. No guest bookings are seeded.
+Open http://127.0.0.1:3000.
+
+The app creates `data/nimba.sqlite` on the first API request and seeds six rooms across Garden, Deluxe, and Suite categories. Room 103 is under maintenance. Room descriptions and rates are sample data; prices are in INR per night.
+
+For a production build:
 
 ```sh
-npm test
-npm run typecheck
 npm run build
 npm start
 ```
 
+Run `npm run typecheck` to check TypeScript. Set `DATABASE_PATH` to use a different SQLite file.
+
+## Features
+
+- Search by check-in, check-out, and room category.
+- See rooms available for the whole stay, with the total price.
+- Book with a guest name and a 10-digit phone number.
+- View recent reservations and cancel a booking.
+- Show validation errors and booking conflicts on the screen.
+
 ## Booking rules
 
-Stays use calendar dates and a half-open interval: check-in is included, check-out is excluded. A departure and arrival on the same day do not clash. Cancelled bookings are ignored and maintenance rooms cannot be booked. Rates are INR per room per night; the server calculates totals from the stored room rate.
+Check-out must be after check-in. A guest leaving on a date does not block another guest arriving that day. Cancelled bookings do not block rooms, and maintenance rooms cannot be booked.
 
-Booking writes use SQLite `BEGIN IMMEDIATE`, so a competing writer waits before checking availability. Database triggers also enforce overlaps on inserts and updates. This keeps the check and insert atomic across connections, rather than trusting the browser's last availability result.
+The server calculates prices from the stored room rate. A SQLite transaction keeps the availability check and booking insert together. Database triggers also reject overlapping inserts and updates, so two requests cannot reserve the same room for the same night.
 
 ## API
 
-- `GET /api/availability?checkIn=2026-11-20&checkOut=2026-11-23&category=Garden`: free rooms and total prices; omit category for all rooms.
-- `POST /api/bookings`: JSON `{ "roomId": "101", "guestName": "Asha Shah", "phone": "9876543210", "checkIn": "2026-11-20", "checkOut": "2026-11-23" }`. Returns 201; invalid input returns 400; clash/maintenance returns 409; unknown room returns 404.
-- `GET /api/bookings`: latest 50 bookings.
-- `DELETE /api/bookings/:id`: cancel a booking, retaining its record.
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| GET | `/api/availability?checkIn=2026-11-20&checkOut=2026-11-23&category=Garden` | Available rooms and stay totals; category is optional |
+| POST | `/api/bookings` | Create a booking |
+| GET | `/api/bookings` | Latest 50 reservations |
+| DELETE | `/api/bookings/:id` | Cancel a reservation |
 
-## Added to the brief
+Example booking body:
 
-Recent bookings and cancellation make mistakes recoverable at the desk and demonstrate that cancelled stays release rooms. The booking panel shows a price breakdown before confirmation. Changed dates clear the chosen room so staff cannot accidentally book stale search results.
+```json
+{
+  "roomId": "101",
+  "guestName": "Asha Shah",
+  "phone": "9876543210",
+  "checkIn": "2026-11-20",
+  "checkOut": "2026-11-23"
+}
+```
 
-## Scope and tradeoffs
+Booking creation returns 201. Invalid input returns 400, an unavailable room returns 409, and an unknown room returns 404.
 
-This is a local assessment app. There is no staff authentication, payment collection, tax calculation, guest messaging, or multi-property support. Do not expose guest details publicly. Use a persistent local disk for SQLite; this setup is not suitable for ephemeral or edge hosting. A production version would need staff access controls and backups. Prices and room descriptions are sample data. Past dates are allowed to keep assessment scenarios reproducible.
+## Small additions
 
-## Tools
+Recent reservations and cancellation let staff correct a booking without deleting its record. The price breakdown helps staff confirm the total before saving. Changing the search clears the selected room to avoid booking from stale results.
 
-Built with assistance from OpenAI Codex for implementation, review, and test execution. Next.js serves the screen and API; TypeScript checks data contracts; Node's SQLite module provides transactions without a separate database service; the Node test runner verifies booking rules. No generated photography or UI component template is used.
+## Stack and limitations
 
-## Verification
+Next.js handles the screen and API routes, TypeScript checks types, and SQLite stores rooms and reservations on disk. React manages the booking flow, with plain CSS for the responsive layout.
 
-`npm test` covers date boundaries, every overlap shape, cancellations, maintenance, category filtering, server-side prices, invalid input, database triggers, and separate database connections.
-
-After `npm run build`, run `npm run test:e2e`. Browser tests use installed Microsoft Edge, launch a separate server on port 3100, and create an isolated SQLite database under `data/`. They cover the complete booking/cancellation flow, eight simultaneous booking requests, HTTP error codes, mobile overflow, and clearing stale room selections. If Edge is unavailable, install Playwright Chromium and change the channel in `playwright.config.ts`. Desktop and mobile screenshots are written to `artifacts/`.
-
-Verified locally: 10 booking tests, 3 browser tests, TypeScript checking, and a successful production build. The concurrency check sends eight simultaneous requests for one room and expects one 201 and seven 409 responses.
+This is a single-property local app. Authentication, payments, taxes, and guest notifications are not implemented. Past dates are allowed. The SQLite file needs persistent storage; an ephemeral serverless deployment would need a different storage setup.
