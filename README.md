@@ -1,53 +1,30 @@
 # Nimba Stay
 
-Room availability and guest booking for the front desk at Nimba Nature Cure.
+A front-desk screen to check room availability and book a guest.
 
-## Setup
+## Run locally
 
-Requires Node.js 24 LTS and npm. SQLite uses Node's built-in `node:sqlite` module, so there is no separate database to install.
+Requires Node.js 24 LTS and npm.
 
 ```sh
 npm install
 npm run dev
 ```
 
-Open http://127.0.0.1:3000.
+Open http://127.0.0.1:3000. The SQLite database is created at `data/nimba.sqlite` on the first API request. Six sample rooms are seeded across Garden, Deluxe, and Suite categories; room 103 is under maintenance. Rates are in INR per room per night.
 
-The app creates `data/nimba.sqlite` on the first API request and seeds six rooms across Garden, Deluxe, and Suite categories. Room 103 is under maintenance. Room descriptions and rates are sample data; prices are in INR per night.
+For a production build, run `npm run build` followed by `npm start`. Run `npm run typecheck` to check TypeScript.
 
-For a production build:
+## What works
 
-```sh
-npm run build
-npm start
-```
+Choose check-in, check-out, and an optional category to see rooms free for the full stay. Select a room, enter a guest name and 10-digit phone number, and confirm. The screen shows the total price, booking confirmation, and errors.
 
-Run `npm run typecheck` to check TypeScript. Set `DATABASE_PATH` to use a different SQLite file.
-
-## Features
-
-- Search by check-in, check-out, and room category.
-- See rooms available for the whole stay, with the total price.
-- Book with a guest name and a 10-digit phone number.
-- View recent reservations and cancel a booking.
-- Show validation errors and booking conflicts on the screen.
-
-## Booking rules
-
-Check-out must be after check-in. A guest leaving on a date does not block another guest arriving that day. Cancelled bookings do not block rooms, and maintenance rooms cannot be booked.
-
-The server calculates prices from the stored room rate. A SQLite transaction keeps the availability check and booking insert together. Database triggers also reject overlapping inserts and updates, so two requests cannot reserve the same room for the same night.
+Booking checks and inserts run inside a SQLite write transaction to prevent double booking. A check-out date does not block a new arrival that day. Cancelled records are ignored when checking availability, and maintenance rooms are excluded. Prices are calculated on the server.
 
 ## API
 
-| Method | Endpoint | Purpose |
-| --- | --- | --- |
-| GET | `/api/availability?checkIn=2026-11-20&checkOut=2026-11-23&category=Garden` | Available rooms and stay totals; category is optional |
-| POST | `/api/bookings` | Create a booking |
-| GET | `/api/bookings` | Latest 50 reservations |
-| DELETE | `/api/bookings/:id` | Cancel a reservation |
-
-Example booking body:
+- `GET /api/availability?checkIn=2026-11-20&checkOut=2026-11-23&category=Garden` - available rooms with stay totals. Omit category to search all rooms.
+- `POST /api/bookings` - create a booking using the JSON below.
 
 ```json
 {
@@ -59,14 +36,14 @@ Example booking body:
 }
 ```
 
-Booking creation returns 201. Invalid input returns 400, an unavailable room returns 409, and an unknown room returns 404.
+Returns 201 on success, 400 for invalid input, 409 for an unavailable room, or 404 for an unknown room.
 
-## Small additions
+## Scope
 
-Recent reservations and cancellation let staff correct a booking without deleting its record. The price breakdown helps staff confirm the total before saving. Changing the search clears the selected room to avoid booking from stale results.
+No authentication, payments, booking history, or cancellation screen. Cancelled records are supported by the availability query, but there is no cancellation endpoint. Past dates are allowed. SQLite needs a persistent local disk. No automated tests are included.
 
-## Stack and limitations
+One small addition is clearing the selected room when search dates or category change, so a booking cannot accidentally use an earlier search.
 
-Next.js handles the screen and API routes, TypeScript checks types, and SQLite stores rooms and reservations on disk. React manages the booking flow, with plain CSS for the responsive layout.
+## Tools used
 
-This is a single-property local app. Authentication, payments, taxes, and guest notifications are not implemented. Past dates are allowed. The SQLite file needs persistent storage; an ephemeral serverless deployment would need a different storage setup.
+Next.js for the page and API routes, React for form state, TypeScript for type checking, and Node's built-in SQLite module for persistence. Plain CSS handles the layout. OpenAI Codex assisted with implementation and verification.

@@ -178,17 +178,7 @@ export function createStore(filename: string) {
         throw error;
       }
     },
-    bookings() {
-      return db
-        .prepare("SELECT * FROM bookings ORDER BY createdAt DESC LIMIT 50")
-        .all() as Booking[];
-    },
-    cancel(id: string) {
-      const result = db
-        .prepare("UPDATE bookings SET status = 'cancelled' WHERE id = ?")
-        .run(id);
-      if (!result.changes) throw new BookingError("Booking not found.", 404);
-    },
+
   };
 }
 let store: ReturnType<typeof createStore> | undefined;

@@ -26,9 +26,6 @@ export function stayDates(checkIn: unknown, checkOut: unknown) {
   if (nights <= 0) throw new BookingError("Check-out must be after check-in.");
   return { checkIn: checkIn as string, checkOut: checkOut as string, nights };
 }
-export function overlaps(aIn: string, aOut: string, bIn: string, bOut: string) {
-  return aIn < bOut && aOut > bIn;
-}
 export function validateGuest(name: unknown, phone: unknown) {
   if (typeof name !== "string" || !name.trim() || name.trim().length > 100)
     throw new BookingError("Enter a guest name between 1 and 100 characters.");
