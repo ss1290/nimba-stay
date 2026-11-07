@@ -5,16 +5,169 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createStore } from "../lib/db";
 import { BookingError, overlaps, stayDates } from "../lib/booking";
-const input = (extra = {}) => ({ roomId: "101", guestName: "Asha Shah", phone: "9876543210", checkIn: "2026-11-20", checkOut: "2026-11-23", ...extra });
-function fixture(run: (store: ReturnType<typeof createStore>) => void) { const store = createStore(":memory:"); try { run(store); } finally { store.db.close(); } }
-function rejectsWith(status: number, run: () => unknown) { assert.throws(run, (e: unknown) => e instanceof BookingError && e.status === status); }
-test("half-open intervals allow departure and arrival on the same day", () => { assert.equal(overlaps("2026-11-18", "2026-11-20", "2026-11-20", "2026-11-23"), false); fixture(s => { s.book(input()); assert.ok(s.book(input({ checkIn: "2026-11-23", checkOut: "2026-11-24" }))); assert.ok(s.book(input({ checkIn: "2026-11-18", checkOut: "2026-11-20" }))); }); });
-test("all overlapping shapes are rejected with 409", () => fixture(s => { s.book(input()); for (const [checkIn, checkOut] of [["2026-11-20", "2026-11-23"], ["2026-11-21", "2026-11-22"], ["2026-11-19", "2026-11-24"], ["2026-11-19", "2026-11-21"], ["2026-11-22", "2026-11-24"]]) rejectsWith(409, () => s.book(input({ checkIn, checkOut }))); }));
-test("cancelled reservations release availability and can be rebooked", () => fixture(s => { const b = s.book(input()); assert.equal(s.availability(b.checkIn, b.checkOut).rooms.some(r => r.id === "101"), false); s.cancel(b.id); assert.equal(s.availability(b.checkIn, b.checkOut).rooms.some(r => r.id === "101"), true); assert.ok(s.book(input())); }));
-test("maintenance rooms are excluded and cannot be booked directly", () => fixture(s => { assert.equal(s.availability("2026-11-20", "2026-11-23").rooms.some(r => r.id === "103"), false); rejectsWith(409, () => s.book(input({ roomId: "103" }))); }));
-test("category filters and full stay totals use server rates", () => fixture(s => { const r = s.availability("2026-11-20", "2026-11-23", "Deluxe"); assert.equal(r.nights, 3); assert.equal(r.rooms.length, 2); assert.ok(r.rooms.every(r => r.category === "Deluxe" && r.totalPrice === 14400)); assert.equal(s.book(input({ totalPrice: 1 })).totalPrice, 9600); }));
-test("bad dates, phone numbers, guest names and categories return 400", () => fixture(s => { for (const extra of [{ checkOut: "2026-11-20" }, { checkOut: "2026-11-19" }, { checkIn: "2026-02-30" }, { checkIn: "20-11-2026" }, { phone: "123" }, { phone: "98765abc10" }, { phone: 9876543210 }, { guestName: "  " }]) rejectsWith(400, () => s.book(input(extra))); rejectsWith(400, () => s.availability("2026-11-20", "2026-11-23", "invalid")); }));
-test("leap days and daylight saving transitions use calendar nights", () => { assert.equal(stayDates("2028-02-28", "2028-03-01").nights, 2); assert.equal(stayDates("2026-03-07", "2026-03-10").nights, 3); });
-test("different rooms can be booked for the same dates", () => fixture(s => { s.book(input()); assert.ok(s.book(input({ roomId: "102" }))); }));
-test("database triggers block inserts and updates that bypass the service", () => fixture(s => { const b = s.book(input()); const sql = "INSERT INTO bookings VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"; assert.throws(() => s.db.prepare(sql).run("duplicate", b.roomId, b.guestName, b.phone, b.checkIn, b.checkOut, 1, "confirmed", b.createdAt), /booking_clash/); s.db.prepare(sql).run("cancelled", b.roomId, b.guestName, b.phone, b.checkIn, b.checkOut, 1, "cancelled", b.createdAt); assert.throws(() => s.db.prepare("UPDATE bookings SET status = 'confirmed' WHERE id = 'cancelled'").run(), /booking_clash/); }));
-test("independent connections see committed bookings and cancellations", () => { const dir = mkdtempSync(join(tmpdir(), "nimba-test-")); const path = join(dir, "stay.sqlite"); const first = createStore(path); const second = createStore(path); try { const b = first.book(input()); rejectsWith(409, () => second.book(input())); assert.equal(second.bookings()[0].id, b.id); first.cancel(b.id); assert.ok(second.book(input())); } finally { first.db.close(); second.db.close(); rmSync(dir, { recursive: true, force: true }); } });
+const input = (extra = {}) => ({
+  roomId: "101",
+  guestName: "Asha Shah",
+  phone: "9876543210",
+  checkIn: "2026-11-20",
+  checkOut: "2026-11-23",
+  ...extra,
+});
+function fixture(run: (store: ReturnType<typeof createStore>) => void) {
+  const store = createStore(":memory:");
+  try {
+    run(store);
+  } finally {
+    store.db.close();
+  }
+}
+function rejectsWith(status: number, run: () => unknown) {
+  assert.throws(
+    run,
+    (e: unknown) => e instanceof BookingError && e.status === status,
+  );
+}
+test("half-open intervals allow departure and arrival on the same day", () => {
+  assert.equal(
+    overlaps("2026-11-18", "2026-11-20", "2026-11-20", "2026-11-23"),
+    false,
+  );
+  fixture((s) => {
+    s.book(input());
+    assert.ok(s.book(input({ checkIn: "2026-11-23", checkOut: "2026-11-24" })));
+    assert.ok(s.book(input({ checkIn: "2026-11-18", checkOut: "2026-11-20" })));
+  });
+});
+test("all overlapping shapes are rejected with 409", () =>
+  fixture((s) => {
+    s.book(input());
+    for (const [checkIn, checkOut] of [
+      ["2026-11-20", "2026-11-23"],
+      ["2026-11-21", "2026-11-22"],
+      ["2026-11-19", "2026-11-24"],
+      ["2026-11-19", "2026-11-21"],
+      ["2026-11-22", "2026-11-24"],
+    ])
+      rejectsWith(409, () => s.book(input({ checkIn, checkOut })));
+  }));
+test("cancelled reservations release availability and can be rebooked", () =>
+  fixture((s) => {
+    const b = s.book(input());
+    assert.equal(
+      s.availability(b.checkIn, b.checkOut).rooms.some((r) => r.id === "101"),
+      false,
+    );
+    s.cancel(b.id);
+    assert.equal(
+      s.availability(b.checkIn, b.checkOut).rooms.some((r) => r.id === "101"),
+      true,
+    );
+    assert.ok(s.book(input()));
+  }));
+test("maintenance rooms are excluded and cannot be booked directly", () =>
+  fixture((s) => {
+    assert.equal(
+      s
+        .availability("2026-11-20", "2026-11-23")
+        .rooms.some((r) => r.id === "103"),
+      false,
+    );
+    rejectsWith(409, () => s.book(input({ roomId: "103" })));
+  }));
+test("category filters and full stay totals use server rates", () =>
+  fixture((s) => {
+    const r = s.availability("2026-11-20", "2026-11-23", "Deluxe");
+    assert.equal(r.nights, 3);
+    assert.equal(r.rooms.length, 2);
+    assert.ok(
+      r.rooms.every((r) => r.category === "Deluxe" && r.totalPrice === 14400),
+    );
+    assert.equal(s.book(input({ totalPrice: 1 })).totalPrice, 9600);
+  }));
+test("bad dates, phone numbers, guest names and categories return 400", () =>
+  fixture((s) => {
+    for (const extra of [
+      { checkOut: "2026-11-20" },
+      { checkOut: "2026-11-19" },
+      { checkIn: "2026-02-30" },
+      { checkIn: "20-11-2026" },
+      { phone: "123" },
+      { phone: "98765abc10" },
+      { phone: 9876543210 },
+      { guestName: "  " },
+    ])
+      rejectsWith(400, () => s.book(input(extra)));
+    rejectsWith(400, () =>
+      s.availability("2026-11-20", "2026-11-23", "invalid"),
+    );
+  }));
+test("leap days and daylight saving transitions use calendar nights", () => {
+  assert.equal(stayDates("2028-02-28", "2028-03-01").nights, 2);
+  assert.equal(stayDates("2026-03-07", "2026-03-10").nights, 3);
+});
+test("different rooms can be booked for the same dates", () =>
+  fixture((s) => {
+    s.book(input());
+    assert.ok(s.book(input({ roomId: "102" })));
+  }));
+test("database triggers block inserts and updates that bypass the service", () =>
+  fixture((s) => {
+    const b = s.book(input());
+    const sql = "INSERT INTO bookings VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+    assert.throws(
+      () =>
+        s.db
+          .prepare(sql)
+          .run(
+            "duplicate",
+            b.roomId,
+            b.guestName,
+            b.phone,
+            b.checkIn,
+            b.checkOut,
+            1,
+            "confirmed",
+            b.createdAt,
+          ),
+      /booking_clash/,
+    );
+    s.db
+      .prepare(sql)
+      .run(
+        "cancelled",
+        b.roomId,
+        b.guestName,
+        b.phone,
+        b.checkIn,
+        b.checkOut,
+        1,
+        "cancelled",
+        b.createdAt,
+      );
+    assert.throws(
+      () =>
+        s.db
+          .prepare(
+            "UPDATE bookings SET status = 'confirmed' WHERE id = 'cancelled'",
+          )
+          .run(),
+      /booking_clash/,
+    );
+  }));
+test("independent connections see committed bookings and cancellations", () => {
+  const dir = mkdtempSync(join(tmpdir(), "nimba-test-"));
+  const path = join(dir, "stay.sqlite");
+  const first = createStore(path);
+  const second = createStore(path);
+  try {
+    const b = first.book(input());
+    rejectsWith(409, () => second.book(input()));
+    assert.equal(second.bookings()[0].id, b.id);
+    first.cancel(b.id);
+    assert.ok(second.book(input()));
+  } finally {
+    first.db.close();
+    second.db.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

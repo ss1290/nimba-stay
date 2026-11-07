@@ -44,3 +44,11 @@ This is a local assessment app. There is no staff authentication, payment collec
 ## Tools
 
 Built with assistance from OpenAI Codex for implementation, review, and test execution. Next.js serves the screen and API; TypeScript checks data contracts; Node's SQLite module provides transactions without a separate database service; the Node test runner verifies booking rules. No generated photography or UI component template is used.
+
+## Verification
+
+`npm test` covers date boundaries, every overlap shape, cancellations, maintenance, category filtering, server-side prices, invalid input, database triggers, and separate database connections.
+
+After `npm run build`, run `npm run test:e2e`. Browser tests use installed Microsoft Edge, launch a separate server on port 3100, and create an isolated SQLite database under `data/`. They cover the complete booking/cancellation flow, eight simultaneous booking requests, HTTP error codes, mobile overflow, and clearing stale room selections. If Edge is unavailable, install Playwright Chromium and change the channel in `playwright.config.ts`. Desktop and mobile screenshots are written to `artifacts/`.
+
+Verified locally: 10 booking tests, 3 browser tests, TypeScript checking, and a successful production build. The concurrency check sends eight simultaneous requests for one room and expects one 201 and seven 409 responses.
